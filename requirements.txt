@@ -1,0 +1,17 @@
+# --- Fase 1: Scraping + TTS (funcional ahora) ---
+praw>=7.7.0
+edge-tts>=6.1.0
+python-dotenv>=1.0.0
+curl-cffi>=0.9.0
+feedparser>=6.0.0
+beautifulsoup4>=4.15.0
+yt-dlp>=2024.12.0
+
+# --- Fase 2: Procesamiento y montaje de vídeo ---
+moviepy>=1.0.3
+openai-whisper
+torch
+ffmpeg-python
+customtkinter>=5.2.0
+
+#la ruta de image magick es C:\Program Files\ImageMagick-7.1.2-Q16-HDRI

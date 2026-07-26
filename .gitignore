@@ -1,0 +1,13 @@
+.env
+venv/
+__pycache__/
+*.pyc
+*.log
+assets/audio/*.mp3
+assets/gameplay/*.mp4
+assets/output/*.mp4
+data/used_posts.json
+data/
+assets/
+*.mp4
+*.ts
