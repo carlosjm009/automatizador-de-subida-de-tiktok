@@ -25,32 +25,22 @@ cp .env.example .env           # y rellena tus credenciales de Reddit
 ### Desde la terminal de Windows
 
 ```powershell
-.\run_with_venv.cmd run.py --gui
-```
-
-o para el pipeline CLI:
-
-```powershell
 .\run_with_venv.cmd run.py
-```
-
-### Inicio rápido de la interfaz gráfica
-
-Puedes abrir la GUI con doble clic usando el lanzador:
-
-```powershell
-.\start_gui.cmd
 ```
 
 ### Si prefieres usar Python directamente
 
 ```powershell
-.\.venv\Scripts\python.exe run.py --gui
-```
-
-```powershell
 .\.venv\Scripts\python.exe run.py
 ```
+
+### Publicación
+
+La opción de publicación se controla con la variable `PUBLISH_PLATFORM` en `.env`.
+- `local`: solo simula el proceso y deja el vídeo en `assets/output/`.
+- `youtube`: intenta subir los vídeos generados a YouTube usando `data/client_secrets.json`.
+
+El historial de publicaciones se guarda en `data/published_videos.json`.
 
 ## Estructura del proyecto
 
@@ -72,6 +62,112 @@ reddit_video_bot/
 └── data/
     └── used_posts.json      # Histórico de posts ya usados (evita repetir historias)
 ```
+
+## Cómo funciona el código y por qué se diseñó así
+
+### `main.py`
+- Este archivo es el orquestador del backend. Ejecuta el pipeline en orden:
+  scraping, TTS, selección de vídeo, montaje y publicación.
+- La decisión de centralizar el flujo en un solo archivo facilita que el proceso
+  sea lineal y fácil de depurar.
+- Alternativa: convertir esto en un servicio REST o un sistema basado en cola de
+  tareas (Celery/RQ), pero para un prototipo era más sencillo mantener un
+  pipeline secuencial.
+
+### `config.py`
+- Contiene constantes y rutas compartidas, además de cargar variables de entorno
+  con `dotenv`.
+- Usar un archivo central evita repetir rutas como `assets/audio` o `data/...`
+  en varios módulos.
+- Alternativa: usar un archivo YAML/JSON de configuración, o una clase de
+  configuración más compleja. Se eligió `dotenv` porque es el estándar en
+  proyectos pequeños y funciona bien con `.env.example`.
+
+### `modules/scraper.py`
+- Se usa scraping del feed RSS de Reddit en lugar de la API oficial de PRAW.
+- Razón: no requiere credenciales específicas de Reddit y evita bloqueos por la
+  API en un proyecto rápido.
+- El módulo filtra historias por longitud y evita repetir posts usando `used_ids`.
+- Si falla el scraping, el código devuelve una historia de emergencia para que el
+  pipeline no quede totalmente bloqueado.
+- Alternativas:
+  - usar PRAW con credenciales y pagos de API si se necesita mayor fiabilidad.
+  - usar Pushshift o la API de Reddit para búsquedas más avanzadas.
+
+### `modules/tts.py`
+- Convierte texto a audio con `edge-tts`, un motor neural gratuito de Microsoft.
+- Se selecciona la voz y se generan pausas manuales entre título y cuerpo.
+- Razón: `edge-tts` ofrece buena calidad de voz en español sin necesidad de una
+  API paga en muchos casos.
+- Alternativas:
+  - `gTTS` o Azure TTS.
+  - usar SSML para mejorar pausas y entonación, pero se eligió texto simple para
+    mantener el sistema robusto y más fácil de depurar.
+
+### `modules/downloader.py`
+- Comprueba si ya hay gameplays en `assets/gameplay`.
+- Si no hay vídeos, descarga automáticamente el siguiente clip desde los
+  canales listados en `data/channels.txt` usando `yt-dlp`.
+- Se mantiene un archivo `download_archive.txt` para no volver a bajar el mismo
+  vídeo.
+- Alternativa: usar un servicio de librerías de vídeo o almacenar vídeos en un
+  bucket. Para este proyecto local, el enfoque con `yt-dlp` es práctico y rápido.
+
+### `modules/video_processor.py`
+- Selecciona el siguiente segmento disponible de un gameplay, manteniendo una
+  memoria en `data/video_progress.json`.
+- Esto permite que el bot use un clip largo en varios vídeos sin repetir el mismo
+  tramo.
+- Usa un umbral para archivar vídeos casi agotados en `assets/used_gameplays`.
+- Alternativas:
+  - usar una base de datos para almacenar progreso en lugar de JSON plano.
+  - recortar vídeos por escena o por tiempo fijo desde el inicio.
+
+### `modules/video_editor.py`
+- Monta el vídeo final con MoviePy y genera subtítulos sincronizados usando
+  Whisper para transcribir el audio generado.
+- Recorta el gameplay a 9:16 y lo escala a 1080x1920, que es el formato de
+  TikTok/Shorts.
+- Si el vídeo supera 55 segundos, se fracciona en partes para cumplir con los
+  límites de Shorts.
+- Alternativas:
+  - generar subtítulos directamente desde el texto usado para TTS y evitar
+    transcripción, pero eso elimina la sincronización palabra por palabra.
+  - usar filtros de FFMPEG en lugar de MoviePy para mejorar rendimiento.
+
+### `modules/publisher.py`
+- Permite publicar de forma local (simulada) o en YouTube.
+- El backend usa OAuth y guarda el token en `data/youtube_token.json`.
+- Se agregó una opción de `PUBLISH_PLATFORM` para no forzar la subida en cada
+  ejecución.
+- Alternativas:
+  - añadir soporte para Instagram/Reels/TikTok.
+  - usar una API de publicación propia o un CMS.
+
+### `run_scheduler.py`
+- Mantiene el bot ejecutándose cada cierto tiempo.
+- Decisión: un proceso de Python simple mantiene la dependencia mínima.
+- Alternativa: usar el programador de tareas de Windows, cron en Linux o un
+  servicio Dockerizado.
+
+### Estructura de estado y por qué JSON
+- El proyecto usa JSON planos para persistir:
+  - publicaciones usadas
+  - historial de subreddits
+  - progreso de vídeo
+  - historial de publicación
+- Razón: simple, fácil de leer y suficiente para un proyecto pequeño.
+- Alternativa: usar SQLite, PostgreSQL o Redis si se necesitan múltiples procesos
+  o mayor fiabilidad.
+
+### Decisiones generales
+- Se priorizó un diseño modular con responsabilidades claras por archivo.
+- Se prefirió robustez sobre optimización extrema en el prototipo.
+- En un producto más maduro, lo ideal sería:
+  - tests automáticos
+  - manejo de errores y reintentos más completo
+  - validaciones más estrictas de credenciales
+  - un backend de API o un microservicio
 
 ## Notas
 

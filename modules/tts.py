@@ -7,11 +7,14 @@ usando edge-tts (voces neuronales gratuitas de Microsoft Edge, sin API key).
 """
 
 import asyncio
+import logging
 from typing import List
 
 import edge_tts
 
 from config import AUDIO_DIR, TTS_PITCH, TTS_RATE, TTS_VOICE
+
+logger = logging.getLogger("reddit_bot")
 
 
 async def _generate_audio(text: str, output_path: str, voice: str, rate: str, pitch: str) -> None:
@@ -47,7 +50,7 @@ def text_to_speech(
     output_path = str(AUDIO_DIR / output_filename)
     asyncio.run(_generate_audio(script_text, output_path, voice, rate, pitch))
 
-    print(f"[tts] Audio generado en: {output_path}")
+    logger.info(f"[tts] Audio generado en: {output_path}")
     return output_path
 
 

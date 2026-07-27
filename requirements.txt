@@ -1,17 +1,18 @@
-# --- Fase 1: Scraping + TTS (funcional ahora) ---
-praw>=7.7.0
+# --- Fase 1: Historias locales (.txt) + TTS ---
+# Ya no se usa Reddit como fuente: modules/story_loader.py simplemente lee
+# archivos .txt de data/stories/, así que no hace falta praw, curl-cffi,
+# feedparser ni beautifulsoup4.
 edge-tts>=6.1.0
 python-dotenv>=1.0.0
-curl-cffi>=0.9.0
-feedparser>=6.0.0
-beautifulsoup4>=4.15.0
 yt-dlp>=2024.12.0
 
 # --- Fase 2: Procesamiento y montaje de vídeo ---
-moviepy>=1.0.3
+moviepy>=2.0.0  # El código usa la API 2.x (subclipped, with_start, cropped, resized...)
 openai-whisper
 torch
 ffmpeg-python
-customtkinter>=5.2.0
+google-api-python-client>=2.100.0
+google-auth-oauthlib>=1.0.0
+google-auth-httplib2>=0.1.0
 
 #la ruta de image magick es C:\Program Files\ImageMagick-7.1.2-Q16-HDRI

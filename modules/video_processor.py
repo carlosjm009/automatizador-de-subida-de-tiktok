@@ -1,12 +1,12 @@
+import logging
 import os
 import json
 import random
 import shutil
 from moviepy import VideoFileClip
-from config import GAMEPLAY_DIR
+from config import GAMEPLAY_DIR, PROGRESS_FILE, USED_GAMEPLAY_DIR
 
-PROGRESS_FILE = "data/video_progress.json"
-USED_GAMEPLAY_DIR = "assets/used_gameplays"  # Carpeta a donde se moverán los vídeos terminados
+logger = logging.getLogger("reddit_bot")
 
 def _load_progress():
     """Carga el registro de progreso de los vídeos."""
@@ -71,7 +71,7 @@ def get_next_background_segment(audio_path: str):
             # Si le quedan menos de 90 segundos (o menos de lo que dura el audio actual),
             # consideramos que ya no sirve para meter historias y lo archivamos.
             if remaining_time < 90 or remaining_time < audio_duration:
-                print(f"🗑️ El vídeo '{video_name}' está prácticamente agotado (quedan {remaining_time:.1f}s). Moviendo a la carpeta de usados...")
+                logger.info(f"🗑️ El vídeo '{video_name}' está prácticamente agotado (quedan {remaining_time:.1f}s). Moviendo a la carpeta de usados...")
                 
                 destination_path = os.path.join(USED_GAMEPLAY_DIR, video_name)
                 
@@ -96,7 +96,7 @@ def get_next_background_segment(audio_path: str):
             break
             
         except Exception as e:
-            print(f"⚠️ Error al procesar el vídeo {video_name}: {e}")
+            logger.warning(f"⚠️ Error al procesar el vídeo {video_name}: {e}")
             continue
 
     # Si se han revisado todos los vídeos y ninguno tiene tiempo suficiente
@@ -112,5 +112,5 @@ def get_next_background_segment(audio_path: str):
     progress[selected_video_name] = end_time
     _save_progress(progress)
 
-    print(f"🧠 Memoria de vídeo: Usando '{selected_video_name}' desde el segundo {start_time:.1f} hasta {end_time:.1f}")
+    logger.info(f"🧠 Memoria de vídeo: Usando '{selected_video_name}' desde el segundo {start_time:.1f} hasta {end_time:.1f}")
     return selected_video, start_time, end_time

@@ -3,7 +3,6 @@ import shutil
 import sys
 import json
 import logging
-import random
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
@@ -90,7 +89,11 @@ def check_prerequisites() -> list[str]:
 
     if shutil.which("ffmpeg") is None:
         missing.append("ffmpeg")
-    if not any(candidate.exists() for candidate in IMAGE_MAGICK_CANDIDATES):
+    imagemagick_found = (
+        shutil.which("magick") is not None
+        or any(candidate.exists() for candidate in IMAGE_MAGICK_CANDIDATES)
+    )
+    if not imagemagick_found:
         missing.append("ImageMagick")
 
     if missing:
@@ -102,48 +105,18 @@ def check_prerequisites() -> list[str]:
     return missing
 
 
-from modules.scraper import get_top_story
+from modules.story_loader import get_next_story, mark_story_as_used
 from modules.tts import text_to_speech
 from modules.video_processor import get_next_background_segment
 from modules.video_editor import create_final_video
 from modules.downloader import ensure_gameplay_exists
-from config import SUBREDDITS, MIN_LENGTH, MAX_LENGTH
-
-
-def get_next_subreddit(used_ids: set) -> str:
-    """
-    Selecciona un subreddit de la lista, prefiriendo aquellos de los que
-    aún no hemos usado historias. Si todos tienen historias usadas, elige
-    uno al azar.
-    """
-    # Cargar historial para ver de qué subreddits hemos sacado historias
-    subreddit_history_file = BASE_DIR / "data" / "subreddit_history.json"
-    subreddit_count = {}
-    if subreddit_history_file.exists():
-        try:
-            with open(subreddit_history_file, "r", encoding="utf-8") as f:
-                subreddit_count = json.load(f)
-        except Exception:
-            subreddit_count = {}
-
-    # Ordenar subreddits por los que menos se han usado (ascendente)
-    sorted_subreddits = sorted(SUBREDDITS, key=lambda sr: subreddit_count.get(sr, 0))
-    return sorted_subreddits[0]
-
-
-def update_subreddit_history(subreddit: str) -> None:
-    """Incrementa el contador de uso de un subreddit."""
-    subreddit_history_file = BASE_DIR / "data" / "subreddit_history.json"
-    history = {}
-    if subreddit_history_file.exists():
-        try:
-            with open(subreddit_history_file, "r", encoding="utf-8") as f:
-                history = json.load(f)
-        except Exception:
-            history = {}
-    history[subreddit] = history.get(subreddit, 0) + 1
-    with open(subreddit_history_file, "w", encoding="utf-8") as f:
-        json.dump(history, f, indent=4, ensure_ascii=False)
+from modules.publisher import publish_video
+from config import (
+    STORIES_DIR,
+    PUBLISH_PLATFORM,
+    VIDEO_TITLE_TEMPLATE,
+    validate_backend_settings,
+)
 
 
 def main():
@@ -161,12 +134,19 @@ def main():
         )
         return
 
+    config_errors = validate_backend_settings()
+    if config_errors:
+        error_text = " | ".join(config_errors)
+        update_run_status("failed", "configuration", error_text, 0.0)
+        logger.error(f"❌ Configuración de backend inválida: {error_text}")
+        return
+
     os.makedirs("assets/audio", exist_ok=True)
     os.makedirs("assets/output", exist_ok=True)
     os.makedirs("data", exist_ok=True)
 
     logger.info("=" * 60)
-    logger.info("🎬 BOT DE VÍDEOS 'REDDIT STORIES' — Iniciando pipeline")
+    logger.info("🎬 BOT DE VÍDEOS DE HISTORIAS — Iniciando pipeline")
     logger.info("=" * 60)
 
     # --- FASE 0: Comprobación automática de gameplays ---
@@ -177,49 +157,34 @@ def main():
         logger.error("Operación detenida: Añade al menos un enlace de canal en 'data/channels.txt'.")
         return
 
-    # --- Cargar posts ya usados ---
+    # --- Cargar historias ya usadas ---
     used_ids = load_used_posts()
-    logger.info(f"📚 Historial cargado: {len(used_ids)} posts ya procesados.")
+    logger.info(f"📚 Historial cargado: {len(used_ids)} historias ya procesadas.")
 
-    # --- FASE 1: Scraping con rotación de subreddits ---
-    update_run_status("running", "scraping", "Buscando historia en Reddit...", 0.25)
-    logger.info("[1/4] Buscando historia en Reddit...")
+    # --- FASE 1: Lectura de historia local (data/stories/*.txt) ---
+    update_run_status("running", "loading_story", f"Buscando historia nueva en {STORIES_DIR}...", 0.25)
+    logger.info(f"[1/4] Buscando historia nueva en {STORIES_DIR}...")
     try:
-        # Intentar con cada subreddit hasta encontrar una historia válida
-        story = None
-        attempted_subreddits = []
-
-        for _ in range(len(SUBREDDITS) * 2):  # Máximo 2 rondas completas
-            subreddit = get_next_subreddit(used_ids)
-            if subreddit in attempted_subreddits:
-                # Si ya intentamos todos, rompemos el bucle
-                if len(attempted_subreddits) >= len(SUBREDDITS):
-                    break
-                continue
-
-            attempted_subreddits.append(subreddit)
-            logger.info(f"🔍 Probando en r/{subreddit}...")
-
-            story = get_top_story(
-                subreddit_name=subreddit,
-                limit_chars=(MIN_LENGTH, MAX_LENGTH),
-                used_ids=used_ids,
-            )
-
-            if story is not None and story["id"] not in used_ids:
-                logger.info(f"✅ Historia encontrada en r/{story.get('subreddit')}: {story.get('title')}")
-                break
-            else:
-                story = None
+        story = get_next_story(used_ids=used_ids)
 
         if story is None:
-            update_run_status("failed", "scraping", "No se encontró una historia válida en ningún subreddit.", 0.25)
-            logger.error("❌ No se encontró ninguna historia válida en ningún subreddit. Abortando.")
+            update_run_status(
+                "failed",
+                "loading_story",
+                f"No hay historias nuevas disponibles en {STORIES_DIR}.",
+                0.25,
+            )
+            logger.error(
+                f"❌ No se encontró ninguna historia nueva en {STORIES_DIR}. "
+                "Añade un .txt con una historia (o borra data/used_posts.json si quieres repetir alguna). Abortando."
+            )
             return
 
+        logger.info(f"✅ Historia encontrada: '{story.get('title')}' (archivo: {story['id']}.txt)")
+
     except Exception as e:
-        update_run_status("failed", "scraping", f"Error en scraping: {e}", 0.25)
-        logger.error(f"❌ Error en scraping: {e}")
+        update_run_status("failed", "loading_story", f"Error cargando historia: {e}", 0.25)
+        logger.error(f"❌ Error cargando historia: {e}")
         return
 
     # --- FASE 2: Texto a Voz ---
@@ -267,9 +232,20 @@ def main():
         for ruta in rutas_generadas:
             logger.info(f"   📁 {ruta}")
 
-        # Marcar la historia como usada y actualizar el historial de subreddits
+        logger.info("📤 Publicando los vídeos generados según la configuración de backend...")
+        published_targets = []
+        for ruta in rutas_generadas:
+            published_target = publish_video(
+                video_path=ruta,
+                platform=PUBLISH_PLATFORM,
+                title=VIDEO_TITLE_TEMPLATE.format(title=story.get("title", "Historia sin título")),
+            )
+            published_targets.append(published_target)
+            logger.info(f"   ✅ Publicado: {published_target}")
+
+        # Marcar la historia como usada y mover su .txt a la carpeta de usadas
         save_used_post(story["id"])
-        update_subreddit_history(story["subreddit"])
+        mark_story_as_used(story["id"], story.get("title", story["id"]), story.get("source_file"))
         logger.info(f"✅ Historia {story['id']} marcada como completada en el historial.")
 
     except Exception as e:
