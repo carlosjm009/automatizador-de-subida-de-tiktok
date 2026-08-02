@@ -63,7 +63,7 @@ def load_used_posts() -> set:
             with open(USED_POSTS_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 return set(data.get("used_ids", []))
-        except (json.JSONDecodeError, Exception) as e:
+        except Exception as e:
             logger.warning(f"No se pudo leer {USED_POSTS_FILE}: {e}. Empezando de cero.")
             return set()
     return set()
@@ -107,8 +107,7 @@ def check_prerequisites() -> list[str]:
 
 from modules.story_loader import get_next_story, mark_story_as_used
 from modules.tts import text_to_speech
-from modules.video_processor import get_next_background_segment
-from modules.video_editor import create_final_video
+from modules.video_editor import create_final_video, get_next_background_segment, commit_background_progress
 from modules.downloader import ensure_gameplay_exists
 from modules.publisher import publish_video
 from config import (
@@ -231,6 +230,11 @@ def main():
         logger.info("✅ ¡Vídeo completado con éxito! Se han generado las siguientes partes:")
         for ruta in rutas_generadas:
             logger.info(f"   📁 {ruta}")
+
+        # Solo ahora, con el vídeo ya generado con éxito, confirmamos en disco
+        # el tramo de gameplay consumido (ver modules/video_editor.py). Si el
+        # pipeline falla antes de llegar aquí, el tramo NO se pierde.
+        commit_background_progress(background_clip_path, end_time)
 
         logger.info("📤 Publicando los vídeos generados según la configuración de backend...")
         published_targets = []

@@ -88,15 +88,21 @@ def publish_video(video_path: str, platform: str = "local", title: str = "Histor
     try:
         creds = _get_youtube_credentials()
         youtube = build("youtube", "v3", credentials=creds)
+        
+        # Ajustes de SEO y publicación pública
         body = {
             "snippet": {
                 "title": title,
-                "description": "Vídeo generado automáticamente",
-                "tags": ["shorts", "historias", "automation"],
-                "categoryId": "22",
+                "description": "Vídeo generado automáticamente #Shorts #Historias",
+                "tags": ["shorts", "historias", "reddit", "narracion"],
+                "categoryId": "24",  # 24 = Entretenimiento
             },
-            "status": {"privacyStatus": "private"},
+            "status": {
+                "privacyStatus": "unlisted", # <--- CAMBIA 'public' POR 'unlisted' AQUÍ
+                "selfDeclaredMadeForKids": False
+            },
         }
+        
         media = MediaFileUpload(video_path, resumable=True, chunksize=-1, mimetype="video/mp4")
         request = youtube.videos().insert(part=",".join(body.keys()), body=body, media_body=media)
         response = request.execute()

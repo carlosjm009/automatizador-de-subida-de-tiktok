@@ -5,19 +5,20 @@ TikTok / YouTube Shorts.
 
 ## Estado actual
 
-- ✅ Módulo 1 — Scraping de Reddit (PRAW)
+- ✅ Módulo 1 — Historias locales (`data/stories/*.txt`) y descarga de gameplays
 - ✅ Módulo 2 — Texto a voz (edge-tts)
-- ⏳ Módulo 3 — Selección/recorte de gameplay de fondo (Fase 2)
-- ⏳ Módulo 4 — Montaje con MoviePy + subtítulos karaoke con Whisper (Fase 2)
+- ✅ Módulo 3 — Selección/recorte de gameplay de fondo con memoria secuencial
+- ✅ Módulo 4 — Montaje con MoviePy + subtítulos karaoke con Whisper
 - ✅ Módulo 5 — Orquestador (`main.py`), preparado para encadenar todo
+- ✅ Módulo 6 — Interfaz gráfica (`gui.py`) y programador automático (`run_scheduler.py`)
 
 ## Instalación
 
 ```bash
 python -m venv venv
-source venv/bin/activate      # En Windows: venv\Scripts\activate
+venv\Scripts\activate         # En Windows
 pip install -r requirements.txt
-cp .env.example .env           # y rellena tus credenciales de Reddit
+copy .env.example .env        # En Windows (CP: cp .env.example .env en Linux/Mac)
 ```
 
 ## Uso
@@ -25,13 +26,19 @@ cp .env.example .env           # y rellena tus credenciales de Reddit
 ### Desde la terminal de Windows
 
 ```powershell
-.\run_with_venv.cmd run.py
+.\run.py
 ```
 
 ### Si prefieres usar Python directamente
 
 ```powershell
 .\.venv\Scripts\python.exe run.py
+```
+
+### Interfaz gráfica
+
+```powershell
+.\lanzar_gui.bat
 ```
 
 ### Publicación
@@ -48,19 +55,28 @@ El historial de publicaciones se guarda en `data/published_videos.json`.
 reddit_video_bot/
 ├── main.py                  # Orquestador (Módulo 5)
 ├── config.py                # Configuración central (rutas, constantes, credenciales)
+├── gui.py                   # Interfaz gráfica (Tkinter)
+├── run.py                   # Entrada limpia para ejecutar main.py
+├── run_scheduler.py         # Programador 24/7
 ├── requirements.txt
 ├── .env.example
 ├── modules/
-│   ├── scraper.py           # Módulo 1: scraping con PRAW
-│   ├── tts.py                # Módulo 2: texto a voz con edge-tts
-│   ├── video_processor.py   # Módulo 3: fondo de gameplay (placeholder, Fase 2)
-│   └── video_editor.py      # Módulo 4: montaje + subtítulos (placeholder, Fase 2)
+│   ├── story_loader.py      # Módulo 1: lectura de historias locales .txt
+│   ├── downloader.py        # Descarga automática de gameplays con yt-dlp
+│   ├── tts.py               # Módulo 2: texto a voz con edge-tts
+│   ├── video_editor.py      # Módulos 3 y 4: fondo con memoria + montaje/subtítulos
+│   └── publisher.py         # Publicación local o en YouTube
 ├── assets/
-│   ├── audio/                # MP3 generados por el Módulo 2
-│   ├── gameplay/              # ⚠️ Aquí debes copiar tus clips de Minecraft/GTA V
-│   └── output/                 # Vídeos finales (Fase 2)
+│   ├── audio/               # MP3 generados por el Módulo 2
+│   ├── gameplay/            # ⚠️ Aquí se guardan los clips de Minecraft/GTA V
+│   ├── used_gameplays/      # Clips ya agotados
+│   └── output/              # Vídeos finales
 └── data/
-    └── used_posts.json      # Histórico de posts ya usados (evita repetir historias)
+    ├── stories/             # Historias .txt pendientes
+    ├── stories/usadas/      # Historias ya procesadas
+    ├── used_posts.json      # Histórico de posts ya usados
+    ├── video_progress.json  # Memoria secuencial de gameplays
+    └── published_videos.json # Historial de publicaciones
 ```
 
 ## Cómo funciona el código y por qué se diseñó así
@@ -83,16 +99,14 @@ reddit_video_bot/
   configuración más compleja. Se eligió `dotenv` porque es el estándar en
   proyectos pequeños y funciona bien con `.env.example`.
 
-### `modules/scraper.py`
-- Se usa scraping del feed RSS de Reddit en lugar de la API oficial de PRAW.
-- Razón: no requiere credenciales específicas de Reddit y evita bloqueos por la
-  API en un proyecto rápido.
-- El módulo filtra historias por longitud y evita repetir posts usando `used_ids`.
-- Si falla el scraping, el código devuelve una historia de emergencia para que el
-  pipeline no quede totalmente bloqueado.
+### `modules/story_loader.py`
+- Lee historias locales desde `data/stories/*.txt`.
+- Cada archivo se identifica por su nombre (sin extensión) como ID único para
+  evitar repetir historias ya procesadas (`data/used_posts.json`).
+- Al completar una historia, se mueve a `data/stories/usadas/` automáticamente.
 - Alternativas:
-  - usar PRAW con credenciales y pagos de API si se necesita mayor fiabilidad.
-  - usar Pushshift o la API de Reddit para búsquedas más avanzadas.
+  - volver a integrar PRAW/scraper de Reddit si se necesita fuente remota.
+  - usar una base de datos en lugar de JSON plano para mayor escalabilidad.
 
 ### `modules/tts.py`
 - Convierte texto a audio con `edge-tts`, un motor neural gratuito de Microsoft.
@@ -113,17 +127,11 @@ reddit_video_bot/
 - Alternativa: usar un servicio de librerías de vídeo o almacenar vídeos en un
   bucket. Para este proyecto local, el enfoque con `yt-dlp` es práctico y rápido.
 
-### `modules/video_processor.py`
-- Selecciona el siguiente segmento disponible de un gameplay, manteniendo una
-  memoria en `data/video_progress.json`.
+### `modules/video_editor.py`
+- Selecciona el siguiente segmento disponible de un gameplay (`get_next_background_segment`),
+  manteniendo una memoria en `data/video_progress.json`.
 - Esto permite que el bot use un clip largo en varios vídeos sin repetir el mismo
   tramo.
-- Usa un umbral para archivar vídeos casi agotados en `assets/used_gameplays`.
-- Alternativas:
-  - usar una base de datos para almacenar progreso en lugar de JSON plano.
-  - recortar vídeos por escena o por tiempo fijo desde el inicio.
-
-### `modules/video_editor.py`
 - Monta el vídeo final con MoviePy y genera subtítulos sincronizados usando
   Whisper para transcribir el audio generado.
 - Recorta el gameplay a 9:16 y lo escala a 1080x1920, que es el formato de
