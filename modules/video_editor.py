@@ -6,7 +6,7 @@ import subprocess
 import uuid  # Genera identificadores únicos de archivos temporales
 
 import whisper
-from moviepy import AudioFileClip, CompositeVideoClip, TextClip, VideoFileClip
+from moviepy import AudioFileClip, CompositeVideoClip, TextClip, VideoFileClip, vfx
 from moviepy.config import FFMPEG_BINARY
 
 from config import GAMEPLAY_DIR, OUTPUT_DIR, PROGRESS_FILE, USED_GAMEPLAY_DIR
@@ -244,6 +244,18 @@ def create_final_video(audio_path: str, background_clip_path: str, start_time: f
     # USAMOS EL TRAMO EXACTO QUE DICTA LA MEMORIA
     bg_clip = bg_clip.subclipped(start_time, end_time)
 
+    # Si el tramo de fondo elegido es más corto que el audio (típicamente
+    # porque el vídeo de gameplay se estaba quedando sin metraje al final),
+    # lo repetimos en bucle para que la pantalla NUNCA se quede sin
+    # gameplay mientras dure la narración.
+    if bg_clip.duration < audio.duration:
+        logger.warning(
+            f"   ⚠️ El tramo de fondo dura {bg_clip.duration:.1f}s pero el audio "
+            f"dura {audio.duration:.1f}s. Repitiendo el fondo en bucle para no "
+            "dejar la pantalla sin gameplay."
+        )
+        bg_clip = bg_clip.with_effects([vfx.Loop(duration=audio.duration)])
+
     # Recortar a relación de aspecto 9:16 (vertical) centrado
     w, h = bg_clip.size
     target_ratio = 9 / 16
@@ -281,6 +293,7 @@ def create_final_video(audio_path: str, background_clip_path: str, start_time: f
                 stroke_width=5.5,
                 method="caption",
                 size=(900, None),
+                margin=(20, 20),
                 text_align="center",
             )
             if SUBTITLE_FONT:

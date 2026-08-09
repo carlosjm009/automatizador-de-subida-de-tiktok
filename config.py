@@ -19,6 +19,7 @@ AUDIO_DIR = ASSETS_DIR / "audio"
 GAMEPLAY_DIR = ASSETS_DIR / "gameplay"       # Aquí pones tus clips de Minecraft/GTA
 OUTPUT_DIR = ASSETS_DIR / "output"           # Vídeos finales (Fase 2)
 USED_POSTS_FILE = BASE_DIR / "data" / "used_posts.json"
+LOG_DIR = BASE_DIR / "logs"                  # Logs del pipeline (usado por main.py y gui.py)
 
 # Carpeta donde el usuario coloca sus historias como archivos .txt
 # (una historia por archivo). Ver modules/story_loader.py para el formato.
@@ -26,7 +27,7 @@ STORIES_DIR = BASE_DIR / "data" / "stories"
 USED_STORIES_DIR = STORIES_DIR / "usadas"
 
 # Crea las carpetas necesarias si no existen
-for _folder in (AUDIO_DIR, GAMEPLAY_DIR, OUTPUT_DIR, STORIES_DIR, USED_STORIES_DIR, USED_POSTS_FILE.parent):
+for _folder in (AUDIO_DIR, GAMEPLAY_DIR, OUTPUT_DIR, STORIES_DIR, USED_STORIES_DIR, USED_POSTS_FILE.parent, LOG_DIR):
     _folder.mkdir(parents=True, exist_ok=True)
 
 # --- Configuración TTS (Módulo 2) ---

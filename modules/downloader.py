@@ -1,6 +1,7 @@
 import logging
 import os
 import yt_dlp
+from yt_dlp.utils import MaxDownloadsReached
 from config import GAMEPLAY_DIR
 
 logger = logging.getLogger("reddit_bot")
@@ -46,7 +47,8 @@ def ensure_gameplay_exists():
         'format': 'bestvideo+bestaudio/best',
         'outtmpl': os.path.join(GAMEPLAY_DIR, '%(id)s.%(ext)s'),
         'merge_output_format': 'mp4',
-        'playlistend': 1,               # Descarga solo 1 vídeo nuevo por cada comprobación
+        'playlistend': 20,                # Ventana de búsqueda: mira hasta los 20 vídeos más recientes del canal
+        'max_downloads': 1,               # Se detiene en cuanto descarga 1 vídeo NUEVO (los ya archivados se saltan sin contar)
         'download_archive': ARCHIVE_FILE, # Registra los IDs descargados para ignorarlos en el futuro
         'ignoreerrors': True,
     }
@@ -57,16 +59,19 @@ def ensure_gameplay_exists():
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([channel_url])
-            
-            # Verificar si la descarga fue efectiva y ya hay vídeos en la carpeta
-            current_videos = [f for f in os.listdir(GAMEPLAY_DIR) if f.lower().endswith(valid_extensions)]
-            if current_videos:
-                logger.info("✅ ¡Nuevo gameplay descargado e integrado automáticamente en el sistema!")
-                return True
-                
+        except MaxDownloadsReached:
+            # yt-dlp lanza esta excepción cuando alcanza el límite de descargas.
+            # Es una señal de ÉXITO (ya se descargó el vídeo), no de error.
+            logger.info("✅ Límite de descarga alcanzado (1 vídeo nuevo).")
         except Exception as e:
             logger.warning(f"⚠️ Error al intentar descargar del canal {channel_url}: {e}")
             continue
+        
+        # Verificar si la descarga fue efectiva y ya hay vídeos en la carpeta
+        current_videos = [f for f in os.listdir(GAMEPLAY_DIR) if f.lower().endswith(valid_extensions)]
+        if current_videos:
+            logger.info("✅ ¡Nuevo gameplay descargado e integrado automáticamente en el sistema!")
+            return True
 
     logger.error("❌ No se pudo descargar ningún vídeo nuevo. Revisa los enlaces en 'data/channels.txt'.")
     return False
