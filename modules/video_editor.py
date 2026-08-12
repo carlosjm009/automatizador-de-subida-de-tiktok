@@ -8,6 +8,7 @@ import uuid  # Genera identificadores únicos de archivos temporales
 import whisper
 from moviepy import AudioFileClip, CompositeVideoClip, TextClip, VideoFileClip, vfx
 from moviepy.config import FFMPEG_BINARY
+from PIL import ImageFont
 
 from config import GAMEPLAY_DIR, OUTPUT_DIR, PROGRESS_FILE, USED_GAMEPLAY_DIR
 
@@ -41,6 +42,55 @@ def _resolve_subtitle_font():
 
 
 SUBTITLE_FONT = _resolve_subtitle_font()
+
+# Tamaño de fuente y grosor de contorno usados para los subtítulos karaoke.
+# Se definen aquí (en lugar de dejarlos sueltos como "magic numbers" dentro
+# de create_final_video) porque también los necesita _resolve_subtitle_box_height().
+SUBTITLE_FONT_SIZE = 110
+SUBTITLE_STROKE_WIDTH = 5.5
+
+
+def _resolve_subtitle_box_height(font_path, font_size, stroke_width, extra_padding=12):
+    """
+    Calcula una altura FIJA (en px) para la caja de cada palabra del subtítulo,
+    en vez de dejar que MoviePy la auto-calcule palabra por palabra (size=(900, None)).
+
+    Motivo del arreglo (bug real de MoviePy 2.x + Pillow >= 10):
+    En modo method="caption" con altura None, MoviePy ajusta la altura de la
+    imagen al bounding box EXACTO de cada palabra concreta (distinto para
+    cada palabra), pero luego coloca el texto usando el ascenso GENÉRICO de
+    la fuente (pil_font.getmetrics()), que es un valor fijo e igual para
+    todas las palabras. Como la mayoría de palabras (las que no tienen
+    mayúsculas ni tildes) no alcanzan ese ascenso máximo, el texto se dibuja
+    más abajo de lo que la caja "ajustada" había previsto, y la parte baja de
+    las letras con descendente (p, y, q, g, j) se sale del lienzo y queda
+    recortada.
+
+    Al fijar la altura de la caja al tamaño real de la fuente (ascenso +
+    descenso, iguales para cualquier palabra) el hueco por debajo de la
+    línea base es siempre el mismo y siempre suficiente, así que ninguna
+    palabra se recorta.
+    """
+    try:
+        pil_font = (
+            ImageFont.truetype(font_path, font_size)
+            if font_path
+            else ImageFont.load_default(font_size)
+        )
+        ascent, descent = pil_font.getmetrics()
+    except Exception as e:
+        logger.warning(
+            f"⚠️ No se pudieron leer las métricas de la fuente de subtítulos ({e}). "
+            "Se usará una altura de caja de seguridad."
+        )
+        ascent, descent = int(font_size * 0.9), int(font_size * 0.3)
+
+    return ascent + descent + int(stroke_width * 2) + extra_padding
+
+
+SUBTITLE_BOX_HEIGHT = _resolve_subtitle_box_height(
+    SUBTITLE_FONT, SUBTITLE_FONT_SIZE, SUBTITLE_STROKE_WIDTH
+)
 
 
 def split_video_into_parts(input_path: str, max_duration: int = 55) -> list:
@@ -135,9 +185,9 @@ def _archive_exhausted_video(video_path) -> None:
         if destination.exists():
             destination = USED_GAMEPLAY_DIR / f"{video_path.stem}_{uuid.uuid4().hex[:8]}{video_path.suffix}"
         shutil.move(str(video_path), str(destination))
-        logger.info(f"   📦 '{video_path.name}' archivado en {USED_GAMEPLAY_DIR.name}/ (agotado, sin tramos libres).")
+        logger.info(f"   '{video_path.name}' archivado en {USED_GAMEPLAY_DIR.name}/ (agotado, sin tramos libres).")
     except OSError as e:
-        logger.warning(f"⚠️ No se pudo archivar el vídeo agotado '{video_path.name}': {e}")
+        logger.warning(f" No se pudo archivar el vídeo agotado '{video_path.name}': {e}")
 
 
 def commit_background_progress(video_path: str, end_time: float) -> None:
@@ -160,7 +210,7 @@ def commit_background_progress(video_path: str, end_time: float) -> None:
     progress[video_name] = end_time
     PROGRESS_FILE.parent.mkdir(parents=True, exist_ok=True)
     PROGRESS_FILE.write_text(json.dumps(progress, indent=4, ensure_ascii=False), encoding="utf-8")
-    logger.info(f"   💾 Progreso de '{video_name}' confirmado en memoria: hasta {end_time:.1f}s")
+    logger.info(f"Progreso de '{video_name}' confirmado en memoria: hasta {end_time:.1f}s")
 
 
 def get_next_background_segment(audio_path: str):
@@ -287,14 +337,15 @@ def create_final_video(audio_path: str, background_clip_path: str, start_time: f
 
             txt_clip_kwargs = dict(
                 text=word_text,
-                font_size=110,
+                font_size=SUBTITLE_FONT_SIZE,
                 color="yellow",
                 stroke_color="black",
-                stroke_width=5.5,
+                stroke_width=SUBTITLE_STROKE_WIDTH,
                 method="caption",
-                size=(900, None),
+                size=(900, SUBTITLE_BOX_HEIGHT),
                 margin=(20, 20),
                 text_align="center",
+                vertical_align="top",
             )
             if SUBTITLE_FONT:
                 txt_clip_kwargs["font"] = SUBTITLE_FONT
