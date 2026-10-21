@@ -3,6 +3,9 @@
 Bot para generar vídeos verticales (9:16) estilo "Reddit Stories" para
 TikTok / YouTube Shorts.
 
+La guía completa de instalación, configuración, funcionamiento de cada módulo
+y uso de la aplicación está en [GUIA_DE_USO.md](GUIA_DE_USO.md).
+
 ## Estado actual
 
 - ✅ Módulo 1 — Historias locales (`data/stories/*.txt`) y descarga de gameplays
